@@ -53,8 +53,21 @@ int screenPage = 0;
 bool screen1Rendered = false;
 bool screen2Rendered = false;
 bool touchReleased = true;
-touchState touchstate;
+touchState touchstate = 0;
+settingsToUpdate whichSettings = 0;
 TS_Point p1;
+
+#define MENU1_BTN_CNT 4
+Adafruit_GFX_Button Menu1Buttons[MENU1_BTN_CNT];
+char Menu1Labels[MENU1_BTN_CNT][5] = {"Up", "Sel", "Down", "Ret"};
+uint16_t Menu1Colors[MENU1_BTN_CNT] = {ILI9341_DARKGREY, ILI9341_DARKGREY, 
+                               ILI9341_DARKGREY, ILI9341_DARKGREY};
+
+#define MENU2_BTN_CNT 4
+Adafruit_GFX_Button Menu2Buttons[MENU2_BTN_CNT];
+char Menu2Labels[MENU2_BTN_CNT][5] = {"Up", "Sel", "Down", "Ret"};
+uint16_t Menu2Colors[MENU2_BTN_CNT] = {ILI9341_BLUE, ILI9341_BLUE, 
+                               ILI9341_BLUE, ILI9341_BLUE};
 
 struct converterSettings{
   // start with a 1-1 mapping of channels
@@ -133,6 +146,7 @@ ISR(TIMER1_OVF_vect) {
 
 // the setup routine runs once when you press reset:
 void setup() {
+  
   /*
     Todo:
     - add EEPROM reading code for start address and TFT touchscreen calibration data.
@@ -142,7 +156,7 @@ void setup() {
 
   readDMXSettings(dmxSettings);
 
-  DMX_SLAVE_CHANNELS = dmxSettings.DMX_end - dmxSettings.DMX_end + 1;
+  DMX_SLAVE_CHANNELS = dmxSettings.DMX_end - dmxSettings.DMX_start + 1;
 
   // Dynamically instantiate dmx slave object so we can set the number of channels on startup instead of at compile time
   dmx_slave = new DMX_Slave(DMX_SLAVE_CHANNELS , RXEN_PIN );
@@ -188,40 +202,44 @@ void loop()
   if ( ++Frames > 250000 ) {
     dmx_slave->getBuffer().clear();
     Frames = 0;
+    digitalWrite ( ledPin, LOW );
+    //PORTD &= !B00010000; // turn off LED via port manipulation
   }
   //
-  // If the first channel comes above 50% the led will switch on
-  // and below 50% the led will be turned off
+  // If the first channel comes above 1% the led will switch on
+  // and below 1% the led will be turned off
   //
-  if ( dmx_slave->getChannelValue (1) > 127 )
+  /*
+  if ( dmx_slave->getChannelValue (1) > 1 )
     digitalWrite ( ledPin, HIGH );
   else
     digitalWrite ( ledPin, LOW ); 
-
+*/
   //check touchscreen every 33 ms or 30fps
-  if (millis() - time_now > 33) {
-    time_now = millis();
-    processTouchscreen();
-  }
+  processTouchscreen();
+  // if (millis() - time_now > 33) {
+  //   time_now = millis();
+
+  // }
 }
 
 void OnFrameReceiveComplete (unsigned short nrchannels)
 {
   Frames = 0;
+  digitalWrite ( ledPin, HIGH );
+  //PORTD |= B00010000; //turn on LED via port manipulation
 }
 
 void processTouchscreen() {
   if(!isCalibrated) {
     if (!isCalibrating) {
-      beginCalibration();
+    //  beginCalibration();
     }
     
-    processCalibrationInput();
+    //processCalibrationInput();
   }
   else
-  {
-    processTouchInput();
-    
+  {    
     // check which screen we are on, and redraw screens if needed.
     switch(screenPage){
       case 0:
@@ -231,7 +249,26 @@ void processTouchscreen() {
           screen1Rendered = true;
         }
         //do any other logic on the screen here. How do we figure out how to touch a button?
-        // if (processTouchInput) {  }
+        if (processTouchInput())
+        {
+          // get point, step through all touchable areas and update screen areas accordingly, change screenpage as needed 
+          if(checkBounds(0, 53, 135, 108)){
+            whichSettings = DMX_START_ADDRESS;
+            screenPage = 1;
+          }
+          else if(checkBounds(180, 53, 310, 108)){
+            whichSettings = DMX_END_ADDRESS;
+            screenPage = 1;
+          }
+          else if(checkBounds(0, 175, 135, 235)){
+            whichSettings = MPX_START_ADDRESS;
+            screenPage = 1;
+          }
+          else if(checkBounds(185, 175, 310, 235)){
+            whichSettings = MPX_END_ADDRESS;
+            screenPage = 1;
+          }
+        }
       break;
       case 1:
         if (!screen2Rendered) {
@@ -239,11 +276,18 @@ void processTouchscreen() {
           redrawAdjustScreen();
           screen2Rendered = true;
         }
-        // do any other logic on the screen here
-        // if (processTouchInput) {  }
+        if (processTouchInput())
+        {
+          if(checkBounds(270, 18, 310, 116)){
+            screenPage = 0;
+          }
+          if(checkBounds(270, 126, 310, 224)){
+            screenPage = 0;
+          }
+        }
       break;
       case 2:
-        redrawRestartingScreen();
+        drawRestartingScreen();
         delay(2000);
 //        resetFunc();
       break;
@@ -251,25 +295,46 @@ void processTouchscreen() {
   }
 }
 
-bool processTouchInput() {
-  boolean isTouched = ts->touched();
+bool checkBounds(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd) {
+  if(p1.x >= xStart && p1.x <= xEnd && p1.y >= yStart && p1.y <= yEnd) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
 
+bool processTouchInput() {
+  TS_Point p2;
+  boolean isTouched = ts->touched();
+  
+  if (isTouched) {
+        p2 = ts->getPoint(); // update touch point coords
+        ts_display->mapTStoDisplay(p2.x, p2.y, &p1.x, &p1.y); //map to display
+  }
   switch (touchstate) {
     case STATE_WAIT:
       if (isTouched) {
-        p1 = ts->getPoint(); // update touch point coords
+        //p1 = ts->getPoint(); 
         touchstate = STATE_WAIT_TOUCHED;
       }
     break;
     case STATE_WAIT_TOUCHED:
       if (!isTouched) {
         touchstate = STATE_RELEASED;
+        tft->setCursor(0,23);
+        tft->setFont(&FreeSans9pt7b);
+        tft->setTextColor(ILI9341_WHITE);
+        tft->fillRect(0, 0, 100, 28, ILI9341_BLACK);
+        tft->print(p1.x, 10);
+        tft->print(",");
+        tft->print(p1.y, 10); 
         return true;
       }
     break;
     case STATE_RELEASED:
       if (!isTouched) {
-        touchstate = STATE_WAIT;
+        touchstate = STATE_WAIT; // once the touchscreen has been marked as released, we can revert to the "waiting for a touch" stage.
       }
     break;
   }
@@ -336,8 +401,11 @@ void redrawAdjustScreen() {
   tft->setCursor(0, 74);
   tft->print("...");
   
+  char buf2[3];
+  sprintf(buf2, "%03d", getDmxSettingToUpdate());
   tft->setCursor(1, 172);
-  tft->print("064");
+  //tft_printf(1, 172, ILI9341_WHITE, buf2);
+  tft->print(buf2);
   
   tft->setCursor(0, 271);
   tft->print("///");
@@ -347,7 +415,20 @@ void redrawAdjustScreen() {
   renderCancelBtn(270, 126, 40, 98);
 }
 
-void redrawRestartingScreen() {
+uint16_t getDmxSettingToUpdate() {
+  switch (whichSettings) {
+    case DMX_START_ADDRESS:
+    return dmxSettings.DMX_start;
+    case DMX_END_ADDRESS:
+    return dmxSettings.DMX_end;
+    case MPX_START_ADDRESS:
+    return dmxSettings.MPX_start;
+    case MPX_END_ADDRESS:
+    return dmxSettings.MPX_end;
+  }
+}
+
+void drawRestartingScreen() {
   tft->fillScreen(COLOR_BKGD);
   tft->setFont(&FreeSans9pt7b);
   tft->setCursor(80, 130);

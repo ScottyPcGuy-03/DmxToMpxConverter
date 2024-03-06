@@ -51,6 +51,13 @@ typedef enum _touchState {
   STATE_RELEASED
 } touchState;
 
+typedef enum _settingsToUpdate {
+  DMX_START_ADDRESS,
+  DMX_END_ADDRESS,
+  MPX_START_ADDRESS,
+  MPX_END_ADDRESS
+} settingsToUpdate;
+
 struct nonvolatileSettings {
   int16_t TS_LR_X;
   int16_t TS_LR_Y;

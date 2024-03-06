@@ -52,10 +52,6 @@ bool readNonvolatileSettings(nonvolatileSettings& settings, const nonvolatileSet
 bool writeNonvolatileSettingsIfChanged(nonvolatileSettings& settings) {
   int signature;
   uint16_t storedAddress = 0;
-  nonvolatileSettings tmp;
-  EEPROM.get(storedAddress + sizeof(signature), tmp);
-  if (memcmp(&settings, &tmp, sizeof(nonvolatileSettings)) == 0)
-    return (false);
   EEPROM.put(storedAddress + sizeof(signature), settings);
 
   return (true);
@@ -107,13 +103,13 @@ void initTouchscreen() {
 
   ts_display->GetCalibration_UL_LR(PLUS_ARM_LEN + 2, &x_UL, &y_UL, &x_LR, &y_LR);
 
-  /*
+  
   if (!isCalibrated) {
     tft->fillScreen(COLOR_BKGD);
     drawPlus(x_UL, y_UL, COLOR_PLUS_CALIB);
     tft_printf(80, 20, COLOR_TEXT, TEXT_TAP_PLUS);
     state = STATE_WAIT_UL;
-  } */
+  }
   //monitor.printf("Waiting for tap at UL corner");
 }
 
