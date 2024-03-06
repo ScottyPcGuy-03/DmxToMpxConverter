@@ -20,7 +20,7 @@ The following Arduino libraries are included:
   - Fonts/Monospaced_plain_72.h
 
 ## Project folder structure
-This repo contains everything you need to compile the project. It should be extracted directly into the Documents\Arduino folder so that the libraries are properly included.
+This repo contains everything you need to compile the project. It should be extracted directly into the Documents\Arduino folder so that the libraries and custom fonts are properly included.
 
 **IMPORTANT:** To use this project with the Arduino 2.x editor, it is easiest to clone this repo DIRECTLY in your ~\Documents\Arduino\ folder BEFORE installing the editor. If you install the editor first, you will need to copy the repo files manually into `%userprofile%\Documents\Arduino`. To clone directly:
 
