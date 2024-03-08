@@ -29,6 +29,7 @@ Modified Feb 20, 2024 by Scott Oberlin.
 #include "Fonts/Monospaced_plain_72.h"
 #include "Fonts/lock_icon.h"
 #include "Fonts/FreeSans18pt7bModified.h"
+#include <avr/wdt.h>
 
 #define RXEN_PIN 2
 #define SYNCBIT  3
@@ -50,9 +51,13 @@ const int DMX_DATA_SIGNATURE = 0xBAAFDEED;
 unsigned long time_now = 0;
 unsigned long time_now2 = 0;
 int screenPage = 0;
+int16_t channelValue = 0;
 bool screen1Rendered = false;
 bool screen2Rendered = false;
+bool screen3Rendered = false;
 bool touchReleased = true;
+bool isLocked = false;
+bool restartNeeded = false;
 touchState touchstate = 0;
 settingsToUpdate whichSettings = 0;
 TS_Point p1;
@@ -79,7 +84,12 @@ struct converterSettings{
 
 converterSettings dmxSettings;
 
-void(* resetFunc) (void) = 0;
+void software_reset()
+{
+  wdt_reset(); 
+  wdt_enable(WDTO_250MS);
+  exit (1);  // loop forever
+}  
 
 void readDMXSettings(converterSettings& settings) {
   int signature;
@@ -167,7 +177,7 @@ void setup() {
 
   // Set start address to 1, this is also the default setting
   // You can change this address at any time during the program
-  dmx_slave->setStartAddress (1);
+  dmx_slave->setStartAddress (dmxSettings.DMX_start);
 
   // Register on frame complete event to determine signal timeout
   
@@ -240,9 +250,10 @@ void processTouchscreen() {
   }
   else
   {    
+
     // check which screen we are on, and redraw screens if needed.
     switch(screenPage){
-      case 0:
+      case 0: {
         if (!screen1Rendered) {
           screen2Rendered = false;
           redrawHomeScreen();
@@ -252,44 +263,161 @@ void processTouchscreen() {
         if (processTouchInput())
         {
           // get point, step through all touchable areas and update screen areas accordingly, change screenpage as needed 
-          if(checkBounds(0, 53, 135, 108)){
+          if(checkBounds(0, 53, 135, 108) && !isLocked)
+          {
             whichSettings = DMX_START_ADDRESS;
             screenPage = 1;
-          }
-          else if(checkBounds(180, 53, 310, 108)){
+          }/*
+          else if(checkBounds(180, 53, 310, 108) && !isLocked)
+          {
             whichSettings = DMX_END_ADDRESS;
             screenPage = 1;
           }
-          else if(checkBounds(0, 175, 135, 235)){
+          else if(checkBounds(0, 175, 135, 235) && !isLocked)
+          {
             whichSettings = MPX_START_ADDRESS;
             screenPage = 1;
-          }
-          else if(checkBounds(185, 175, 310, 235)){
+          }*/
+          else if(checkBounds(185, 175, 310, 235) && !isLocked)
+          {
             whichSettings = MPX_END_ADDRESS;
             screenPage = 1;
           }
+          else if(checkBounds(275, 115, 310, 160))
+          {
+            isLocked = !isLocked;
+            tft->fillRect(275, 120, 35, 40, ILI9341_BLACK);
+            drawLockIcon(isLocked);
+          }
+          else if(checkBounds(180, 0, 320, 40))
+          {
+            screenPage = 2;
+          }
         }
+      }
       break;
-      case 1:
+      case 1: { //adjust screen
         if (!screen2Rendered) {
           screen1Rendered = false;
           redrawAdjustScreen();
           screen2Rendered = true;
+
+          // load temp channel value only when switching to this screen
+          switch(whichSettings) {
+              case MPX_END_ADDRESS:
+                channelValue = dmxSettings.MPX_end;
+              break;
+              case DMX_START_ADDRESS:
+                channelValue = dmxSettings.DMX_start;
+              break;
+          }
         }
+        int16_t channelRedrawValue = channelValue;
         if (processTouchInput())
         {
-          if(checkBounds(270, 18, 310, 116)){
+          
+          bool channelUpdated = false;
+
+          if(checkBounds(270, 18, 320, 116)) //checkmark tapped
+          {
+            switch(whichSettings) {
+              case MPX_END_ADDRESS:
+                dmxSettings.MPX_end = constrain(channelValue, 1, 128);
+              break;
+              case DMX_START_ADDRESS:
+                dmxSettings.DMX_start = constrain(channelValue, 1, 511);
+              break;
+            }
+            
+            // calculate transforms:
+            if ((511 - dmxSettings.DMX_start) < dmxSettings.MPX_end ){
+              dmxSettings.DMX_end = 511;
+              dmxSettings.DMX_start = 512 - dmxSettings.MPX_end;
+            } else {
+              dmxSettings.DMX_end = dmxSettings.DMX_start + dmxSettings.MPX_end - 1;
+            }
+            // Save updated data
+            writeDMXSettings(dmxSettings);
+            restartNeeded = true;
+            //return to main screen
             screenPage = 0;
           }
-          if(checkBounds(270, 126, 310, 224)){
+          else if(checkBounds(270, 126, 320, 224)) //cancel button tapped
+          {
             screenPage = 0;
+          }
+          else if(checkBounds(0, 0, 80, 100))
+          {
+            // increase hundreds digit
+            channelValue += 100;
+            channelUpdated = true;
+          }
+          else if(checkBounds(90, 0, 170, 100))
+          {
+            // increase tens digit
+            channelValue += 10;
+            channelUpdated = true;
+          }
+          else if(checkBounds(180, 0, 260, 100))
+          {
+            // increase ones digit
+            channelValue += 1;
+            channelUpdated = true;
+          }
+          else if(checkBounds(0, 140, 80, 240))
+          {
+            // decrease hundreds digit
+            channelValue -= 100;
+            channelUpdated = true;
+          }
+          else if(checkBounds(90, 140, 170, 240))
+          {
+            // decrease tens digit
+            channelValue -= 10;
+            channelUpdated = true;
+          }
+          else if(checkBounds(180, 140, 260, 240))
+          {
+            // decrease ones digit
+            channelValue -= 1;
+            channelUpdated = true;
+          }
+            // keep settings within appropriate maximum bounds. This must happen on every update.
+          if(channelUpdated){
+            if (whichSettings == MPX_END_ADDRESS){
+              channelValue = constrain(channelValue, 1, 128);
+            } else if(whichSettings == DMX_START_ADDRESS) {
+              channelValue = constrain(channelValue, 1, 511);
+            }
+
+            // update screen
+            char buf1[3];
+            sprintf(buf1, "%03d", channelRedrawValue);
+            tft->setCursor(1, 172);
+            tft->setFont(&Monospaced_plain_72);
+            tft->setTextSize(2);
+            //clear old text
+            tft->setTextColor(ILI9341_BLACK);
+            tft->print(buf1);
+            //print new text
+            tft->setCursor(1, 172);
+            sprintf(buf1, "%03d", channelValue);
+            tft->setTextColor(ILI9341_WHITE);
+            tft->print(buf1);
           }
         }
+      }
       break;
-      case 2:
+      case 2: {
+        screen1Rendered = false;
+        screen2Rendered = false;
+        screen3Rendered = false;
         drawRestartingScreen();
+        screen3Rendered = true;
         delay(2000);
-//        resetFunc();
+        screenPage = 0;
+        software_reset();
+      }
       break;
     }
   }
@@ -310,7 +438,7 @@ bool processTouchInput() {
   
   if (isTouched) {
         p2 = ts->getPoint(); // update touch point coords
-        ts_display->mapTStoDisplay(p2.x, p2.y, &p1.x, &p1.y); //map to display
+        ts_display->mapTStoDisplay(p2.x, p2.y, &p1.x, &p1.y); //map to display coordinates
   }
   switch (touchstate) {
     case STATE_WAIT:
@@ -343,16 +471,18 @@ bool processTouchInput() {
 
 void drawLockIcon(bool locked) 
 {
-  tft->setTextColor(ILI9341_LIGHTGREY);
   tft->setCursor(274,175);
   tft->setFont(&lock_icon);
   if(locked)
   {
+    tft->setTextColor(ILI9341_RED);
     tft->print("L");
   }
   else {
+    tft->setTextColor(ILI9341_GREEN);
     tft->print("M");
   }
+  tft->setTextColor(ILI9341_WHITE);
 }
 
 void drawSettingsHeader(uint16_t x, uint16_t y, uint16_t color, char *text)
@@ -364,30 +494,40 @@ void drawSettingsHeader(uint16_t x, uint16_t y, uint16_t color, char *text)
   tft->print(text);
 }
 
-void drawSettingsValue(uint16_t x, uint16_t y, uint16_t color, uint16_t setting1, uint16_t setting2) {
+void drawSettingsValue(uint16_t x, uint16_t y, uint16_t color1, uint16_t color2, uint16_t setting1, uint16_t setting2) {
 
   char buf[3];
 
   sprintf(buf, "%03d", setting1);
   tft->setFont(&Monospaced_plain_72);
-  tft_printf(x, y, color, buf);
+  tft_printf(x, y, color1, buf);
   tft->print("-");
   sprintf(buf, "%03d", setting2);
+  tft->setTextColor(color2);
   tft->print(buf);
 }
 
 void redrawHomeScreen() {
   
-
   tft->fillScreen(COLOR_BKGD);
-  drawSettingsHeader(6, 40, ILI9341_ORANGE, "DMX in:");
+  
+  if(restartNeeded){
+    tft->fillRect(180, 4, 130, 36, ILI9341_RED);
+    tft->setFont(&FreeSans9pt7b);
+    tft->setTextSize(1);
+    tft->setCursor(187,27);
+    tft->print("Restart Device");
+  }
+  
 
-  drawSettingsValue(6,105, ILI9341_WHITE, dmxSettings.DMX_start, dmxSettings.DMX_end);
-  drawSettingsHeader(6, 160, ILI9341_CYAN, "MPX out:");
+  drawSettingsHeader(6, 40, ILI9341_ORANGE, "DMX In:");
 
-  drawLockIcon(false);
+  drawSettingsValue(6,105, ILI9341_WHITE, ILI9341_DARKGREY, dmxSettings.DMX_start, dmxSettings.DMX_end);
+  drawSettingsHeader(6, 160, ILI9341_CYAN, "MPX Out:");
 
-  drawSettingsValue(6,225, ILI9341_WHITE, dmxSettings.MPX_start, dmxSettings.MPX_end);
+  drawLockIcon(isLocked);
+
+  drawSettingsValue(6,225, ILI9341_DARKGREY, ILI9341_WHITE, dmxSettings.MPX_start, dmxSettings.MPX_end);
 }
 
 void redrawAdjustScreen() {
@@ -430,6 +570,7 @@ uint16_t getDmxSettingToUpdate() {
 
 void drawRestartingScreen() {
   tft->fillScreen(COLOR_BKGD);
+  
   tft->setFont(&FreeSans9pt7b);
   tft->setCursor(80, 130);
   tft->setTextColor(ILI9341_GREEN);
