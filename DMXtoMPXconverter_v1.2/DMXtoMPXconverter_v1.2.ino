@@ -48,8 +48,6 @@ static unsigned char sync5ms = 1;
 static unsigned long Frames = 0;
 const unsigned long dmxTimeoutMillis = 10000UL;
 const int DMX_DATA_SIGNATURE = 0xBAAFDEED;
-unsigned long time_now = 0;
-unsigned long time_now2 = 0;
 int screenPage = 0;
 int16_t channelValue = 0;
 bool screen1Rendered = false;
@@ -61,18 +59,6 @@ bool restartNeeded = false;
 touchState touchstate = 0;
 settingsToUpdate whichSettings = 0;
 TS_Point p1;
-
-#define MENU1_BTN_CNT 4
-Adafruit_GFX_Button Menu1Buttons[MENU1_BTN_CNT];
-char Menu1Labels[MENU1_BTN_CNT][5] = {"Up", "Sel", "Down", "Ret"};
-uint16_t Menu1Colors[MENU1_BTN_CNT] = {ILI9341_DARKGREY, ILI9341_DARKGREY, 
-                               ILI9341_DARKGREY, ILI9341_DARKGREY};
-
-#define MENU2_BTN_CNT 4
-Adafruit_GFX_Button Menu2Buttons[MENU2_BTN_CNT];
-char Menu2Labels[MENU2_BTN_CNT][5] = {"Up", "Sel", "Down", "Ret"};
-uint16_t Menu2Colors[MENU2_BTN_CNT] = {ILI9341_BLUE, ILI9341_BLUE, 
-                               ILI9341_BLUE, ILI9341_BLUE};
 
 struct converterSettings{
   // start with a 1-1 mapping of channels
@@ -227,10 +213,6 @@ void loop()
 */
   //check touchscreen every 33 ms or 30fps
   processTouchscreen();
-  // if (millis() - time_now > 33) {
-  //   time_now = millis();
-
-  // }
 }
 
 void OnFrameReceiveComplete (unsigned short nrchannels)
@@ -390,11 +372,13 @@ void processTouchscreen() {
               channelValue = constrain(channelValue, 1, 511);
             }
 
-            // update screen
+            // update only portions of screen that changed
+            int mask = compareNumbers(channelRedrawValue, channelValue);
+            
             char buf1[3];
             sprintf(buf1, "%03d", channelRedrawValue);
-            tft->setCursor(1, 172);
             tft->setFont(&Monospaced_plain_72);
+            tft->setCursor(1, 172);
             tft->setTextSize(2);
             //clear old text
             tft->setTextColor(ILI9341_BLACK);
@@ -423,6 +407,22 @@ void processTouchscreen() {
   }
 }
 
+// Returns a binary mask of which digits match up. E.g. "123" and "124" will return "110".
+int compareNumbers(int num1, int num2) {
+    int result = 0;
+    
+    for (int i = 0; i < 3; i++) {
+        if (num1 % 10 != num2 % 10) {
+            result |= (1 << i);
+        }
+        
+        num1 /= 10;
+        num2 /= 10;
+    }
+    
+    return result;
+}
+
 bool checkBounds(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd) {
   if(p1.x >= xStart && p1.x <= xEnd && p1.y >= yStart && p1.y <= yEnd) {
     return true;
@@ -449,14 +449,14 @@ bool processTouchInput() {
     break;
     case STATE_WAIT_TOUCHED:
       if (!isTouched) {
-        touchstate = STATE_RELEASED;
+        touchstate = STATE_RELEASED; /*
         tft->setCursor(0,23);
         tft->setFont(&FreeSans9pt7b);
         tft->setTextColor(ILI9341_WHITE);
         tft->fillRect(0, 0, 100, 28, ILI9341_BLACK);
         tft->print(p1.x, 10);
         tft->print(",");
-        tft->print(p1.y, 10); 
+        tft->print(p1.y, 10); */
         return true;
       }
     break;
@@ -476,11 +476,11 @@ void drawLockIcon(bool locked)
   if(locked)
   {
     tft->setTextColor(ILI9341_RED);
-    tft->print("L");
+    tft->print(F("L"));
   }
   else {
     tft->setTextColor(ILI9341_GREEN);
-    tft->print("M");
+    tft->print(F("M"));
   }
   tft->setTextColor(ILI9341_WHITE);
 }
@@ -501,7 +501,7 @@ void drawSettingsValue(uint16_t x, uint16_t y, uint16_t color1, uint16_t color2,
   sprintf(buf, "%03d", setting1);
   tft->setFont(&Monospaced_plain_72);
   tft_printf(x, y, color1, buf);
-  tft->print("-");
+  tft->print(F("-"));
   sprintf(buf, "%03d", setting2);
   tft->setTextColor(color2);
   tft->print(buf);
@@ -516,7 +516,7 @@ void redrawHomeScreen() {
     tft->setFont(&FreeSans9pt7b);
     tft->setTextSize(1);
     tft->setCursor(187,27);
-    tft->print("Restart Device");
+    tft->print(F("Restart Device"));
   }
   
 
@@ -539,7 +539,7 @@ void redrawAdjustScreen() {
   tft->setFont(&Monospaced_plain_72);
   tft->setTextSize(2);
   tft->setCursor(0, 74);
-  tft->print("...");
+  tft->print(F("..."));
   
   char buf2[3];
   sprintf(buf2, "%03d", getDmxSettingToUpdate());
@@ -548,7 +548,7 @@ void redrawAdjustScreen() {
   tft->print(buf2);
   
   tft->setCursor(0, 271);
-  tft->print("///");
+  tft->print(F("///"));
 
   //print ok button
   renderOkBtn(270, 18, 40, 98);
@@ -575,7 +575,7 @@ void drawRestartingScreen() {
   tft->setCursor(80, 130);
   tft->setTextColor(ILI9341_GREEN);
   tft->setTextSize(2);
-  tft->print("Restarting...");
+  tft->print(F("Restarting..."));
 }
 
 void renderOkBtn(int16_t x, int16_t y, int16_t width, int16_t height) {
