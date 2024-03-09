@@ -56,8 +56,8 @@ bool screen3Rendered = false;
 bool touchReleased = true;
 bool isLocked = false;
 bool restartNeeded = false;
-touchState touchstate = 0;
-settingsToUpdate whichSettings = 0;
+touchState touchstate = STATE_WAIT;
+settingsToUpdate whichSettings = DMX_START_ADDRESS;
 TS_Point p1;
 
 struct converterSettings{
@@ -271,7 +271,7 @@ void processTouchscreen() {
             tft->fillRect(275, 120, 35, 40, ILI9341_BLACK);
             drawLockIcon(isLocked);
           }
-          else if(checkBounds(180, 0, 320, 40))
+          else if(checkBounds(180, 0, 320, 40) && restartNeeded)
           {
             screenPage = 2;
           }
@@ -375,19 +375,21 @@ void processTouchscreen() {
             // update only portions of screen that changed
             int mask = compareNumbers(channelRedrawValue, channelValue);
             
-            char buf1[3];
+            static char buf1[8];
             sprintf(buf1, "%03d", channelRedrawValue);
             tft->setFont(&Monospaced_plain_72);
             tft->setCursor(1, 172);
             tft->setTextSize(2);
             //clear old text
             tft->setTextColor(ILI9341_BLACK);
+            //tft->print(channelRedrawValue);
             tft->print(buf1);
             //print new text
             tft->setCursor(1, 172);
             sprintf(buf1, "%03d", channelValue);
             tft->setTextColor(ILI9341_WHITE);
             tft->print(buf1);
+            //tft->print(channelValue);
           }
         }
       }
@@ -496,7 +498,7 @@ void drawSettingsHeader(uint16_t x, uint16_t y, uint16_t color, char *text)
 
 void drawSettingsValue(uint16_t x, uint16_t y, uint16_t color1, uint16_t color2, uint16_t setting1, uint16_t setting2) {
 
-  char buf[3];
+  static char buf[4];
 
   sprintf(buf, "%03d", setting1);
   tft->setFont(&Monospaced_plain_72);
@@ -541,8 +543,8 @@ void redrawAdjustScreen() {
   tft->setCursor(0, 74);
   tft->print(F("..."));
   
-  char buf2[3];
-  sprintf(buf2, "%03d", getDmxSettingToUpdate());
+  static char buf2[4];
+  sprintf(buf2, "%03u", getDmxSettingToUpdate());
   tft->setCursor(1, 172);
   //tft_printf(1, 172, ILI9341_WHITE, buf2);
   tft->print(buf2);
