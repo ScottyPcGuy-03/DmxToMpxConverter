@@ -372,24 +372,35 @@ void processTouchscreen() {
               channelValue = constrain(channelValue, 1, 511);
             }
 
-            // update only portions of screen that changed
+            // store which characters have changed so we can iterate over them and redraw later. 
             int mask = compareNumbers(channelRedrawValue, channelValue);
-            
-            static char buf1[8];
+            static char buf1[4];
+            static char buf3[4];
             sprintf(buf1, "%03d", channelRedrawValue);
-            tft->setFont(&Monospaced_plain_72);
-            tft->setCursor(1, 172);
+            sprintf(buf3, "%03d", channelValue);
+            // set font, & size
             tft->setTextSize(2);
-            //clear old text
-            tft->setTextColor(ILI9341_BLACK);
-            //tft->print(channelRedrawValue);
-            tft->print(buf1);
-            //print new text
-            tft->setCursor(1, 172);
-            sprintf(buf1, "%03d", channelValue);
-            tft->setTextColor(ILI9341_WHITE);
-            tft->print(buf1);
-            //tft->print(channelValue);
+            tft->setFont(&Monospaced_plain_72);
+            
+            int bitPosition = 2; // text is normally drawn from left-to-right, while binary is normally right-to-left, so need a separate var to count downward and read the bits from left-to-right. 
+            for (int bufferPos = 0; bufferPos<3; bufferPos++) {
+              // update only portions of screen that changed
+              if (bitRead(mask, bitPosition) == 1) {
+
+                // clear old text
+                // format with leading zeros for proper spacing
+                tft->setCursor(((bufferPos * 88) + 1), 172);
+                tft->setTextColor(ILI9341_BLACK);
+                tft->print(buf1[bufferPos]); 
+
+                //print new text
+                tft->setCursor(((bufferPos * 88) + 1), 172);
+                tft->setTextColor(ILI9341_WHITE);
+                tft->print(buf3[bufferPos]); 
+                
+              }
+              bitPosition--;
+            }
           }
         }
       }
@@ -400,7 +411,7 @@ void processTouchscreen() {
         screen3Rendered = false;
         drawRestartingScreen();
         screen3Rendered = true;
-        delay(2000);
+        delay(1000);
         screenPage = 0;
         software_reset();
       }
@@ -409,7 +420,7 @@ void processTouchscreen() {
   }
 }
 
-// Returns a binary mask of which digits match up. E.g. "123" and "124" will return "110".
+// Returns a binary mask of which digits are different. E.g. "123" and "124" will return 0b00000001.
 int compareNumbers(int num1, int num2) {
     int result = 0;
     
